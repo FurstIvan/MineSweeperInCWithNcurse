@@ -3,6 +3,9 @@
 #include <time.h> 
 #include <string.h>
 #include <ctype.h>
+#include <math.h>
+
+#pragma message("usage of the file: difficulty rows cols \n")
 
 #ifdef __MINGW32__
     #include <ncurses/ncurses.h>
@@ -83,11 +86,13 @@ int main(int argc, char* argv[]) {
 
     switch(game.state) {
         case WIN:
-            fprintf(stdout, "GG wellplayed you won this time"); break;
+            fprintf(stdout, "GG wellplayed you won this time\n"); break;
         case LOSE:
-            fprintf(stdout, "You dont even know how to solve a minesweeper?"); break;   
+            fprintf(stdout, "You dont even know how to solve a minesweeper?\n"); break;   
         case QUIT:
-            fprintf(stdout, "Yeah go ahead and quit you big quitter"); break;
+            fprintf(stdout, "Yeah go ahead and quit you big quitter\n"); break;
+        case IN_GAME:
+            fprintf(stdout, "How did you get here?\n"); break;
     }
 
     free_board(game.board);
@@ -279,7 +284,7 @@ char** create_board(Board board, char sign) {
 
     for (int row = 0; row < board.rows; row++) {
         grid[row] = (char*)malloc(board.cols * sizeof(char));
-        
+
         for (int col = 0; col < board.cols; col++) {
             grid[row][col] = sign;
         }
@@ -289,7 +294,7 @@ char** create_board(Board board, char sign) {
 
 char** set_mines(Board board, Difficulty diff) {
     int total_cells = board.rows * board.cols;
-    int total_mines = (total_cells * diff) / 100;  
+    int total_mines = ceil((float)(total_cells * diff) / 100);  
 
     int row = 0;
     int col = 0;
