@@ -1,3 +1,8 @@
+/// reminder !!! before class scp the file !!
+
+// use command to quickly copy it : scp -r ./7D pp-angfts@plexi.sze.hu:~/homework/
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h> 
@@ -5,7 +10,7 @@
 #include <ctype.h>
 #include <math.h>
 
-#pragma message("usage of the file: difficulty rows cols \n")
+#pragma message("usage of the file: difficulty <e,m,h>  rows <int>  cols <int> \n")
 
 #ifdef __MINGW32__
     #include <ncurses/ncurses.h>
@@ -70,6 +75,7 @@ void toggle_flag(Game*);
 void reveal_cell(Game*, int, int);
 void check_win(Game*);
 void game_loop(Game*);
+void reveal_all(Game* game, int row, int col);
 
 int main(int argc, char* argv[]) {
 
@@ -166,7 +172,9 @@ void draw_game(Game game) {
     
     print_board(game.visible_board, X_OFF, Y_OFF);
 
-    mvchgat(game.c_row+ X_OFF, game.c_col + Y_OFF, 1, A_REVERSE | A_DIM, 0, NULL);
+
+    // int mvchgat(int y, int x, int n, attr_t attr, short color, const void *opts)
+    mvchgat(game.c_row + X_OFF, game.c_col + Y_OFF, 1, A_REVERSE, 0, NULL);
 }
 
 void toggle_flag(Game* game) {
@@ -193,7 +201,6 @@ void check_win(Game* game) {
 Game init_game(char* difficulty, int rows ,int cols) {
     Game game; 
 
-    Difficulty diff;
     if (strcmp(difficulty, "easy") == 0 || strcmp(difficulty, "e") == 0) {
         game.diff= EASY;
     } else if (strcmp(difficulty, "medium") == 0 || strcmp(difficulty, "m") == 0) {
@@ -234,11 +241,33 @@ Board init_board(int rows, int cols, char sign){
     return board;
 }
 
+void reveal_all(Game* game, int row, int col) {
+    game -> visible_board.grid[row][col] = game -> board.grid[row][col];
+    for (int i = -1; i < 2; i++) {
+        if (row + i >= game->board.rows || row + i < 0 ) 
+            continue;
+        
+        for (int j = -1; j < 2; j++) {
+            if (col + j >= game->board.cols || col + j < 0) 
+                continue;
+            
+            if (game -> visible_board.grid[row + i][col + j] != game -> board.grid[row + i][col + j]) {
+                game -> visible_board.grid[row + i][col + j] = game -> board.grid[row + i][col + j];
+            
+                    if (game -> board.grid[row + i][col + j] == '0') 
+                        reveal_all(game, row + i, col + j);
+            }
+        }
+    }
+}
+
 void reveal_cell(Game* game, int c_row, int c_col) {
     if (game -> flag == UNACTIVE) {
         if (game -> board.grid[c_row][c_col] == '*') {
             game -> visible_board.grid[c_row][c_col] = '*';
             game -> state = LOSE;
+        } else if (game -> board.grid[c_row][c_col] == '0') {
+            reveal_all(game, c_row, c_col);
         } else {
             game -> visible_board.grid[c_row][c_col] = game -> board.grid[c_row][c_col];
         }
