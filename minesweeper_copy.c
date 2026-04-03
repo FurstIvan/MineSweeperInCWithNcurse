@@ -17,6 +17,8 @@
 #define X_OFF 5
 #define Y_OFF 5
 
+
+
 // to be done: auto_start where to place ....
 
 // according to r/minesweeper, the hardest difficulty is 20% mines  \
@@ -63,6 +65,15 @@ typedef struct Point {
     int y;
 } Point;
 
+typedef struct Record {
+    Difficulty diff;
+    int rows;
+    int cols;
+    int area;
+    double time_seconds;
+} Record;
+
+
 int main(int, char* []);
 Board init_board(int ,int, char);
 Game init_game(char*, int ,int, char);
@@ -83,14 +94,21 @@ void reveal_all(Game*, int, int);
 void special_case(Game*, int, int);
 void auto_start_game(Game*);
 char auto_start_setup(void);
-void insert_record(double);
-void print_records(FILE*);
 void auto_start_optimal(Game*);
 void reveal_all_start(Game*, int, int, int*);
 void reset_visible_board(Game*, char);
 void fast_flag(Game*, int, int);
 
-char** sort_records(char**);    // to be done
+const char* difficulty_to_string(Difficulty diff);
+Difficulty string_to_difficulty(const char* s);
+int difficulty_priority(Difficulty diff);
+
+void append_record(const char* filename, const Game* game, double time_seconds);
+int load_records(const char* filename, Record** out_records);
+int compare_records(const void* a, const void* b);
+void print_leaderboard(const char* filename);
+void print_best_per_category(const char* filename);
+
 
 int main(int argc, char* argv[]) {
     if (argc != 4) {
@@ -114,7 +132,11 @@ int main(int argc, char* argv[]) {
         case WIN:
             fprintf(stdout, "GG wellplayed, you won this time\n"); 
             fprintf(stdout, "Here is your time: %.2f \n", difftime(end, start));
-            insert_record(difftime(end, start)); break;
+            double elapsed = difftime(end, start);
+            append_record("records.csv", &game, elapsed);
+            print_best_per_category("records.csv");
+            print_leaderboard("records.csv");
+            break;
         case LOSE:
             fprintf(stdout, "You dont even know how to solve a minesweeper?\n"); break;   
         case QUIT:
@@ -196,7 +218,7 @@ void draw_game(Game game) {
 
 
     // int mvchgat(int y, int x, int n, attr_t attr, short color, const void *opts)
-    mvchgat(game.c_row + X_OFF, game.c_col + Y_OFF, 1, A_REVERSE, 0, NULL);
+    mvchgat(Y_OFF + game.c_row, X_OFF + game.c_col, 1, A_REVERSE, 0, NULL);
 }
 
 void toggle_flag(Game* game) {
@@ -219,30 +241,6 @@ void check_win(Game* game) {
 
     game -> state = WIN;
     return;
-}
-
-
-void print_records(FILE* records) {
-    char buffer[100];
-    fseek(records, 0, SEEK_SET);
-
-    while (fgets(buffer, sizeof(buffer), records) != NULL) {
-        fprintf(stdout ,"%s", buffer);
-    }
-}
-
-void insert_record(double record) {
-    FILE* file = fopen("records.txt", "a+");
-    if (file == NULL) {
-        FILE* file = fopen("records.txt", "w");
-    }
-
-    fprintf(file, "%.2f\n", record);
-    fflush(file);
-
-    print_records(file);
-
-    fclose(file);
 }
 
 Game init_game(char* difficulty, int rows ,int cols, char auto_start) {
@@ -471,7 +469,7 @@ char** create_board(Board board, char sign) {
 void reset_visible_board(Game* game, char sign) {
 
     for (int row = 0; row < game -> visible_board.rows; row++) {
-        for (int col = 0; col < game -> visible_board.rows; col++) {
+        for (int col = 0; col < game -> visible_board.cols; col++) {
             game -> visible_board.grid[row][col] = sign;
         }
     }
@@ -630,4 +628,208 @@ void auto_start_optimal(Game* game) {
 
     reveal_all(game, optim_location.x, optim_location.y);
     return;
+}
+
+const char* difficulty_to_string(Difficulty diff) {
+    switch (diff) {
+        case EASY:   return "easy";
+        case MEDIUM: return "medium";
+        case HARD:   return "hard";
+        default:     return "unknown";
+    }
+}
+
+Difficulty string_to_difficulty(const char* s) {
+    if (strcmp(s, "easy") == 0)   
+        return EASY;
+    if (strcmp(s, "medium") == 0) 
+        return MEDIUM;
+    if (strcmp(s, "hard") == 0)   
+        return HARD;
+    return EASY;
+}
+
+int difficulty_priority(Difficulty diff) {
+    switch (diff) {
+        case HARD:   
+            return 3;
+        case MEDIUM: 
+            return 2;
+        case EASY:   
+            return 1;
+        default:     
+            return 0;
+    }
+}
+
+void append_record(const char* filename, const Game* game, double time_seconds) {
+    int need_header = 0;
+
+    FILE* check = fopen(filename, "r");
+    if (check == NULL) {
+        need_header = 1;
+    } else {
+        fseek(check, 0, SEEK_END);
+        if (ftell(check) == 0) {
+            need_header = 1;
+        }
+        fclose(check);
+    }
+
+    FILE* file = fopen(filename, "a");
+    if (file == NULL) {
+        fprintf(stderr, "Could not open %s for writing.\n", filename);
+        return;
+    }
+
+    if (need_header) {
+        fprintf(file, "difficulty,rows,cols,area,time_seconds\n");
+    }
+
+    fprintf(
+        file,
+        "%s,%d,%d,%d,%.2f\n",
+        difficulty_to_string(game->diff),
+        game->board.rows,
+        game->board.cols,
+        game->board.rows * game->board.cols,
+        time_seconds
+    );
+
+    fclose(file);
+}
+
+int load_records(const char* filename, Record** out_records) {
+    FILE* file = fopen(filename, "r");
+    if (file == NULL) {
+        *out_records = NULL;
+        return 0;
+    }
+
+    int capacity = 16;
+    int count = 0;
+    Record* records = malloc(capacity * sizeof(Record));
+    if (records == NULL) {
+        fclose(file);
+        *out_records = NULL;
+        return 0;
+    }
+
+    char line[256];
+    while (fgets(line, sizeof(line), file) != NULL) {
+        char diff_str[32];
+        Record r;
+
+        if (sscanf(line, " %31[^,],%d,%d,%d,%lf",
+                   diff_str, &r.rows, &r.cols, &r.area, &r.time_seconds) == 5) {
+            r.diff = string_to_difficulty(diff_str);
+
+            if (count == capacity) {
+                capacity *= 2;
+                Record* tmp = realloc(records, capacity * sizeof(Record));
+                if (tmp == NULL) {
+                    free(records);
+                    fclose(file);
+                    *out_records = NULL;
+                    return 0;
+                }
+                records = tmp;
+            }
+
+            records[count++] = r;
+        }
+    }
+
+    fclose(file);
+    *out_records = records;
+    return count;
+}
+
+int compare_records(const void* a, const void* b) {
+    const Record* ra = (const Record*)a;
+    const Record* rb = (const Record*)b;
+
+    int pa = difficulty_priority(ra->diff);
+    int pb = difficulty_priority(rb->diff);
+
+    if (pa != pb) {
+        return pb - pa;
+    }
+
+    if (ra->area != rb->area) {
+        return rb->area - ra->area;
+    }
+
+    if (ra->rows != rb->rows) {
+        return rb->rows - ra->rows;
+    }
+
+    if (ra->cols != rb->cols) {
+        return rb->cols - ra->cols;
+    }
+
+    if (ra->time_seconds < rb->time_seconds) return -1;
+    if (ra->time_seconds > rb->time_seconds) return 1;
+
+    return 0;
+}
+
+void print_leaderboard(const char* filename) {
+    Record* records = NULL;
+    int count = load_records(filename, &records);
+
+    if (count == 0) {
+        printf("\nNo records found yet.\n");
+        return;
+    }
+
+    qsort(records, count, sizeof(Record), compare_records);
+
+    printf("\n=== FULL LEADERBOARD ===\n");
+    for (int i = 0; i < count; i++) {
+        printf(
+            "%2d. %-6s %2dx%-2d area=%3d   time=%7.2f s\n",
+            i + 1,
+            difficulty_to_string(records[i].diff),
+            records[i].rows,
+            records[i].cols,
+            records[i].area,
+            records[i].time_seconds
+        );
+    }
+
+    free(records);
+}
+
+void print_best_per_category(const char* filename) {
+    Record* records = NULL;
+    int count = load_records(filename, &records);
+
+    if (count == 0) {
+        printf("\nNo records found yet.\n");
+        return;
+    }
+
+    qsort(records, count, sizeof(Record), compare_records);
+
+    printf("\n=== BEST TIME PER CATEGORY ===\n");
+
+    for (int i = 0; i < count; i++) {
+        if (i == 0 ||
+            records[i].diff != records[i - 1].diff ||
+            records[i].rows != records[i - 1].rows ||
+            records[i].cols != records[i - 1].cols) {
+
+            printf(
+                "%-6s %2dx%-2d area=%3d   best=%7.2f s\n",
+                difficulty_to_string(records[i].diff),
+                records[i].rows,
+                records[i].cols,
+                records[i].area,
+                records[i].time_seconds
+            );
+        }
+    }
+
+    free(records);
 }
